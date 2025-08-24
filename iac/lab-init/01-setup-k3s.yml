@@ -1,0 +1,6 @@
+- name: Setup K3s
+  hosts: k3s
+  roles:
+    - role: k3s
+      vars:
+        kine_mysql_password: "{{ kine_password }}"

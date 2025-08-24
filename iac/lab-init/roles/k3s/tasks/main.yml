@@ -1,0 +1,135 @@
+---
+# tasks file for k3s
+
+- name: install epel & rpmfusion
+  dnf:
+    name: 
+      - epel-release
+    state: present
+
+- name: enable CRB
+  ini_file:
+    path: /etc/yum.repos.d/centos.repo
+    section: crb
+    option: enabled
+    value: 1
+
+- name: install deps
+  dnf:
+    name: 
+      - dnf-plugins-core
+      - curl
+      - jq
+      - wget
+      - mysql-server
+      - python3-mysqlclient
+      - python3-kubernetes
+      - ansible-collection-community-general
+      - centos-release-kmods-kernel-6.6
+      - btrfs-progs
+      - tar
+      - bzip2
+    state: present
+
+
+- name: Start and enable MySQL
+  systemd:
+    name: mysqld
+    enabled: true
+    state: started
+
+- name: Create kine database and user
+  mysql_db:
+    name: "{{ kine_mysql_db }}"
+    state: present
+    login_unix_socket: /var/lib/mysql/mysql.sock
+
+- name: Create kine user
+  mysql_user:
+    name: "{{ kine_mysql_user }}"
+    password: "{{ kine_mysql_password }}"
+    priv: "{{ kine_mysql_db }}.*:ALL"
+    host: "%"
+    state: present
+    login_unix_socket: /var/lib/mysql/mysql.sock
+
+- name: Check k3s
+  stat:
+    path: /usr/local/bin/k3s
+  register: k3s_bin
+
+- block:
+  - name: Download K3s install script
+    get_url:
+      url: https://get.k3s.io
+      dest: /tmp/k3s-install.sh
+      mode: '0755'
+
+  - name: Install K3s using Kine with MySQL
+    shell: |
+      INSTALL_K3S_EXEC="--disable traefik --disable servicelb --datastore-endpoint=mysql://{{ kine_mysql_user }}:{{ kine_mysql_password }}@tcp({{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}:3306)/{{ kine_mysql_db }}" /tmp/k3s-install.sh
+
+  when: not k3s_bin.stat.exists
+
+- name: trust kube network
+  firewalld:
+    source: "{{ item }}"
+    zone: trusted
+    permanent: yes
+    state: enabled
+    immediate: yes
+  with_items:
+    - "10.42.0.0/16"
+    - "10.43.0.0/16"
+
+- name: Allow NodePort range (30000-32767) in public zone
+  firewalld:
+    port: "30000-32767/tcp"
+    permanent: yes
+    state: enabled
+    zone: public
+    immediate: yes
+
+- name: Allow connecting to apiserver
+  firewalld:
+    port: "6443/tcp"
+    permanent: yes
+    state: enabled
+    zone: public
+    immediate: yes
+
+- name: check helm installation
+  stat:
+    path: /usr/local/bin/helm
+  register: helm_bin
+
+- block:
+    - name: download helm install script
+      get_url:
+        url: https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3
+        dest: /tmp/helm-install.sh
+        mode: '0755'
+
+    - name: Install helm
+      shell: /tmp/helm-install.sh
+      args:
+        creates: /usr/local/bin/helm
+
+  when: not helm_bin.stat.exists
+
+- name: install helm diff
+  shell: helm plugin install https://github.com/databus23/helm-diff
+  args: 
+    creates: /root/.local/share/helm/plugins/helm-diff
+
+- name: copy manifests
+  template:
+    src: "{{ item.src }}"
+    dest: "/var/lib/rancher/k3s/server/manifests/{{ item.path }}"
+  with_filetree:
+    - "../templates/k8s/"
+  when: item.state == 'file'
+
+- fetch:
+    src: /etc/rancher/k3s/k3s.yaml
+    dest: fetch

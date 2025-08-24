@@ -1,0 +1,5 @@
+---
+# defaults file for k3s
+kine_mysql_db: kine
+kine_mysql_user: kine
+kine_mysql_password: Tocsyacfi
