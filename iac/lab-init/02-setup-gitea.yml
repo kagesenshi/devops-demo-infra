@@ -22,6 +22,8 @@
                 value: "{{ ansible_default_ipv4.address }}"
               - name: GITEA__SERVER__SSH_PORT
                 value: "30022"
+              - name: GITEA__SERVER__ROOT_URL
+                value: "http://{{ ansible_default_ipv4.address}}:30080"
           service:
             http:
               type: NodePort
