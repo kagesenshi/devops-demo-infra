@@ -29,8 +29,14 @@
       - btrfs-progs
       - tar
       - bzip2
+      - chronyd
     state: present
 
+- name: Start and enable Chrony
+  systemd:
+    name: chronyd
+    enabled: true
+    state: started
 
 - name: Start and enable MySQL
   systemd:
